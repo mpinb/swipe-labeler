@@ -18,6 +18,8 @@ parser.add_argument('--path_for_neg_labels',type=str,
                     help='folder with images labeled negative')
 parser.add_argument('--path_for_unsure_labels',type=str,
                     help='folder with images labeled unsure')
+parser.add_argument('--port', type=int, default=5000, 
+                    help='Port to run the Flask app on')
 
 args = parser.parse_args()
 batch_size = args.batch_size or 5
@@ -379,4 +381,5 @@ def end_app():
     return {'status': 'success'}
 
 
-app.run(host='0.0.0.0',port=int('8080'))
+#app.run(host='0.0.0.0',port=int('8080'))
+app.run(host='0.0.0.0',port=args.port)
