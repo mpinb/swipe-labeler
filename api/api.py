@@ -8,6 +8,15 @@ from flask import Flask, request, send_from_directory, render_template, session
 from flask.logging import create_logger
 from argparse import ArgumentParser
 
+# used to apply a colormap to the image
+import matplotlib
+matplotlib.use('Agg') # use a non-interactive backend (headless)
+
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+
+
 parser = ArgumentParser()
 parser.add_argument('--batch_size', type=int, help='how many items to label')
 parser.add_argument('--path_for_unlabeled', type=str,
@@ -20,6 +29,8 @@ parser.add_argument('--path_for_unsure_labels',type=str,
                     help='folder with images labeled unsure')
 parser.add_argument('--port', type=int, default=5000, 
                     help='Port to run the Flask app on')
+parser.add_argument('--cmap', type=str, default='viridis',
+                    help='Color map to use for the heatmap')
 
 args = parser.parse_args()
 batch_size = args.batch_size or 5
@@ -27,6 +38,7 @@ path_for_unlabeled = args.path_for_unlabeled
 path_for_pos = args.path_for_pos_labels
 path_for_neg = args.path_for_neg_labels
 path_for_unsure = args.path_for_unsure_labels
+cmap = args.cmap
 
 def create_app(batch_size, path_for_unlabeled):
     react_build_directory = os.path.join(
@@ -36,7 +48,8 @@ def create_app(batch_size, path_for_unlabeled):
     app = Flask(__name__, template_folder=react_build_directory,
                 static_folder=os.path.join(react_build_directory, 'static'))
     app.config['batch_size'] = batch_size
-    app.config['path_for_unlabeled'] = path_for_unlabeled 
+    app.config['path_for_unlabeled'] = path_for_unlabeled
+    app.config['cmap'] = cmap
 
     # Create a temp folder, if it doesnt exist
     app.config["temp"] = os.path.join(Path(path_for_unlabeled).resolve().parent,'temp')
@@ -117,6 +130,7 @@ def list_image_url():
     # Parsing request data
     swipes = request.get_json()['swipes']
     image_url = request.get_json()['image_url']
+    
     if image_url != "none":
         # This line cuts off the '/media/' at the start of the image_url from request.
         image_name = image_url[7:]
@@ -134,7 +148,6 @@ def list_image_url():
     # Undo didnt happen, pick a random file from unlabeled 
     else:   
         src = app.config["path_for_unlabeled"]
-        image = None
         if ( len(os.listdir(src)) ):
             image = random.choice(os.listdir(src))
         else:
@@ -186,10 +199,73 @@ def giveDetails():
 @app.route('/media/<filename>')
 def serve_image_url(filename):
     '''Serves the single image requested.'''
+    
+
     # This is the path_for_unlabeled folder that is passed in as an argument when starting this script.
     orig_images_path = app.config['temp']
-    # Serves the single image requested from the path_for_unlabeled folder.
-    return send_from_directory(orig_images_path, filename)
+
+    # using a colormap can help enhace the image display
+    cmap = app.config['cmap']
+
+    if cmap != 'none':
+    # Applying the colormap to the image and save it in the color_images_path
+        color_images_path = apply_colormap_matplotlib(orig_images_path, filename, cmap)
+        return send_from_directory(color_images_path, filename)
+    else:
+        # Serves the single image requested from the path_for_unlabeled folder.
+        return send_from_directory(orig_images_path, filename)
+
+def apply_colormap_opencv(images_path, filename, cmap):
+    '''Applies a colormap to an image and saves it in that directory + the cmap name postfixed to it.'''
+    import cv2
+
+    # Read the image
+    image_path = os.path.join(images_path, filename)
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    
+    # Apply the colormap
+    if cmap == 'viridis':
+        colored_image = cv2.applyColorMap(image, cv2.COLORMAP_VIRIDIS)
+    else: # use magma as default
+        colored_image = cv2.applyColorMap(image, cv2.COLORMAP_MAGMA)
+
+    # Save the colored image in a subdirectory using the cmap name as the subdir name.
+    color_images_path = os.path.join(images_path, cmap)
+    # if the color image path doesn't existe create it
+    if not os.path.exists(color_images_path):
+        os.mkdir(color_images_path)
+
+    colored_image_path = os.path.join(color_images_path, filename)
+    cv2.imwrite(colored_image_path, colored_image)
+
+    # notice we return the color images path not the colored image path
+    return color_images_path
+
+def apply_colormap_matplotlib(images_path, filename, cmap):
+    '''Applies a colormap to an image and saves it in that directory + the cmap name postfixed to it.'''
+    # Read the image
+    image_path = os.path.join(images_path, filename)
+    image = Image.open(image_path)
+    image = np.array(image)
+
+    # Apply the colormap
+    if cmap == 'viridis':
+        colored_image = plt.get_cmap('viridis')(image)
+    else: # use magma as default
+        colored_image = plt.get_cmap('magma')(image)
+
+    # Save the colored image in a subdirectory using the cmap name as the subdir name.
+    color_images_path = os.path.join(images_path, cmap)
+    # if the color image path doesn't existe create it
+    if not os.path.exists(color_images_path):
+        os.mkdir(color_images_path)
+
+    colored_image_path = os.path.join(color_images_path, filename)
+    plt.imsave(colored_image_path, colored_image)
+
+    # notice we return the color images path not the colored image path
+    return color_images_path
+
 
 @app.route('/submit', methods=['POST'])
 def submit_label():
